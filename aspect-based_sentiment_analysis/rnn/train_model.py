@@ -6,6 +6,8 @@ from custom_dataset import CustomDataset, text_to_embedding
 from rnnmodel import RNNModel
 from sklearn.metrics import accuracy_score
 import numpy as np
+from sklearn.metrics import roc_auc_score, f1_score
+from sklearn.preprocessing import label_binarize
 
 bidirectional = True
 model_name = "lstm"
@@ -61,6 +63,54 @@ def get_acc_score(y_true_tensor, y_pred_tensor):
     y_true_tensor = y_true_tensor.cpu().numpy()
     y_true_tensor = y_true_tensor.flatten()
     return accuracy_score(y_true_tensor, y_pred_tensor)
+
+
+
+def get_auc_score(y_true, y_pred_log):
+    # 将对数概率转换回概率
+    y_pred = torch.exp(y_pred_log).numpy()
+
+    n_samples = y_true.shape[0]
+    auc_scores = []
+
+    for index in range(n_samples):
+        y_true_sample = y_true[index]
+        y_pred_sample = y_pred[index]
+
+        # 对每个分类的标签进行二值化
+        y_true_bin = label_binarize(y_true_sample, classes=[0, 1, 2])
+
+        # 计算每个类的AUC并取平均
+        sample_auc_scores = []
+        for i in range(y_true_bin.shape[1]):  # 遍历每个标签
+            try:
+                auc_score = roc_auc_score(y_true_bin[:, i], y_pred_sample[:, i])
+                sample_auc_scores.append(auc_score)
+            except ValueError:
+                continue  # 忽略只有一类的标签
+
+        if sample_auc_scores:
+            auc_scores.append(np.mean(sample_auc_scores))
+
+    return np.mean(auc_scores) if auc_scores else 0
+
+
+def get_f1_score(y_true, y_pred_log):
+    # 取argmax获取预测类别
+    y_pred = y_pred_log.argmax(dim=2).numpy()
+
+    n_samples = y_true.shape[0]
+    f1_scores = []
+
+
+    for index in range(n_samples):
+        y_true_sample = y_true[index]
+        y_pred_sample = y_pred[index]
+
+        # 计算F1分数
+        f1_scores.append(f1_score(y_true_sample, y_pred_sample, average='macro'))
+
+    return np.mean(f1_scores)
 
 # 定义训练函数
 def train(model, train_loader):
@@ -143,6 +193,3 @@ if __name__ == '__main__':
     train(model, train_loader)
     test(test_dataloader)
     print(model_name + "模型训练结束...")
-
-
-
