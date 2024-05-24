@@ -11,6 +11,9 @@ from bert_multilabel_cls import BertMultiLabelCls
 from data_helper import MultiClsDataSet
 from sklearn.metrics import accuracy_score
 from data_sentiment import Sentiment
+from sklearn.metrics import roc_auc_score, f1_score
+from sklearn.preprocessing import label_binarize
+import pandas as pd
 
 train_path = "./data/train.json"
 dev_path = "./data/dev.json"
@@ -81,8 +84,8 @@ def train():
             torch.save(model.state_dict(), save_model_path)
 
     # 测试
-    test_acc = test(save_model_path, test_path)
-    print("Test acc: {}".format(test_acc))
+    test(save_model_path, test_path)
+
 
 
 def dev(model, dataloader, criterion):
@@ -124,9 +127,65 @@ def test(model_path, test_data_path):
             pred_labels.append(logits)
     true_labels = torch.cat(true_labels, dim=0)
     pred_labels = torch.cat(pred_labels, dim=0)
+
     acc_score = get_acc_score(true_labels, pred_labels)
-    return acc_score
+    # 计算AUC和F1分数
+    auc_score = get_auc_score(true_labels, pred_labels)
+    f1_score = get_f1_score(true_labels, pred_labels)
+
+    print("Acc Score:", acc_score)
+    print("AUC Score:", auc_score)
+    print("F1 Score:", f1_score)
+    return acc_score,auc_score,f1_score
+
+
+
+
+def get_auc_score(y_true, y_pred_log):
+    # 将对数概率转换回概率
+    y_pred = torch.exp(y_pred_log).numpy()
+
+    n_samples = y_true.shape[0]
+    auc_scores = []
+
+    for index in range(n_samples):
+        y_true_sample = y_true[index]
+        y_pred_sample = y_pred[index]
+
+        # 对每个分类的标签进行二值化
+        y_true_bin = label_binarize(y_true_sample, classes=[0, 1, 2])
+
+        # 计算每个类的AUC并取平均
+        sample_auc_scores = []
+        for i in range(y_true_bin.shape[1]):  # 遍历每个标签
+            try:
+                auc_score = roc_auc_score(y_true_bin[:, i], y_pred_sample[:, i])
+                sample_auc_scores.append(auc_score)
+            except ValueError:
+                continue  # 忽略只有一类的标签
+
+        if sample_auc_scores:
+            auc_scores.append(np.mean(sample_auc_scores))
+
+    return np.mean(auc_scores) if auc_scores else 0
+
+
+def get_f1_score(y_true, y_pred_log):
+    # 取argmax获取预测类别
+    y_pred = y_pred_log.argmax(dim=2).numpy()
+
+    n_samples = y_true.shape[0]
+    f1_scores = []
+
+    for index in range(n_samples):
+        y_true_sample = y_true[index]
+        y_pred_sample = y_pred[index]
+
+        # 计算F1分数
+        f1_scores.append(f1_score(y_true_sample, y_pred_sample, average='macro'))
+
+    return np.mean(f1_scores)
 
 
 if __name__ == '__main__':
-    train()
+    test(save_model_path, test_path)
